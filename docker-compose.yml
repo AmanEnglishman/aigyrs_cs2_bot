@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  faceit-bot:
+    build: .
+    container_name: faceit-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+
+
