@@ -15,8 +15,11 @@ from faceit_client import (
     get_player_summary,
     get_player_maps_stats,
     get_player_recent_matches,
-    search_player,
+    search_player, get_player_card_data,
 )
+
+from card_renderer import render_faceit_card
+from aiogram.types import FSInputFile
 
 
 load_dotenv()
@@ -228,6 +231,27 @@ async def shutdown() -> None:
         await bot_instance.session.close()
     logger.info("Bot stopped")
 
+async def cmd_faceit_card(message: Message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Используй: /faceit_card <ник>")
+        return
+
+    nickname = args[1].strip()
+
+    # 🔹 берём данныеданные из faceit_client
+    data = get_player_card_data(nickname)  # 👈 сейчас объясню
+
+    # 🔹 рендерим карточку
+    image_path = await render_faceit_card(data)
+
+
+    await message.answer_photo(
+        photo=FSInputFile(image_path),
+        caption="🎮 FACEIT Player Card"
+    )
+
+
 
 async def main() -> None:
     global bot_instance, dp_instance
@@ -249,7 +273,8 @@ async def main() -> None:
     dp_instance.message.register(cmd_faceit, F.text.startswith("/faceit "))
     dp_instance.message.register(cmd_faceit_maps, Command("faceit_maps"))
     dp_instance.message.register(cmd_faceit_matches, Command("faceit_matches"))
-    
+    dp_instance.message.register(cmd_faceit_card, Command("faceit_card"))
+
     # Обработчик inline-кнопок
     dp_instance.callback_query.register(handle_callback)
 

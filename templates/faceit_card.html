@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<style>
+  body {
+    margin: 0;
+    background: #020617;
+    font-family: Inter, Arial, sans-serif;
+  }
+
+  .wrapper {
+    width: 820px;
+    height: 440px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .card {
+    width: 820px;
+    height: 440px;
+    padding: 28px 32px;
+    box-sizing: border-box;
+    color: #e5e7eb;
+    background:
+      radial-gradient(700px 360px at top right, #1e293b, transparent),
+      linear-gradient(135deg, #020617, #020617);
+    border-radius: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* HEADER */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .player {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .nickname {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .sub {
+    margin-top: 4px;
+    color: #9ca3af;
+    font-size: 15px;
+  }
+
+  .elo {
+    text-align: right;
+  }
+
+  .elo .value {
+    font-size: 34px;
+    font-weight: 800;
+    color: #22c55e;
+  }
+
+  .elo .lvl {
+    font-size: 13px;
+    color: #9ca3af;
+  }
+
+  /* STATS GRID */
+  .stats {
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+
+  .stat {
+    background: rgba(15, 23, 42, 0.85);
+    border-radius: 18px;
+    padding: 16px 14px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,0.04),
+      0 8px 24px rgba(0,0,0,0.35);
+    text-align: center;
+  }
+
+  .stat .value {
+    font-size: 26px;
+    font-weight: 700;
+    color: #f8fafc;
+  }
+
+  .stat .label {
+    margin-top: 6px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #94a3b8;
+  }
+
+  /* RATING */
+  .rating {
+    margin-top: 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #1e293b, #020617);
+    border-radius: 22px;
+    padding: 18px 22px;
+  }
+
+  .rating-left {
+    flex: 1;
+  }
+
+  .rating-title {
+    font-size: 16px;
+    color: #cbd5f5;
+  }
+
+  .bar {
+    margin-top: 8px;
+    width: 100%;
+    height: 8px;
+    background: #020617;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #38bdf8, #22c55e);
+    box-shadow: 0 0 12px rgba(56,189,248,0.6);
+  }
+
+  .rating-value {
+    margin-left: 18px;
+    font-size: 38px;
+    font-weight: 900;
+    color: #38bdf8;
+    white-space: nowrap;
+  }
+
+  /* FOOTER */
+  .footer {
+    position: absolute;
+    bottom: 18px;
+    right: 26px;
+    font-size: 11px;
+    color: #64748b;
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header">
+        <div class="player">
+          <div class="nickname">{{ nickname }}</div>
+          <div class="sub">{{ country_flag }} FACEIT • CS2</div>
+        </div>
+
+        <div class="elo">
+          <div class="value">{{ elo }}</div>
+          <div class="lvl">LVL {{ level }}</div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="value">{{ kd }}</div>
+          <div class="label">K/D</div>
+        </div>
+        <div class="stat">
+          <div class="value">{{ adr }}</div>
+          <div class="label">ADR</div>
+        </div>
+        <div class="stat">
+          <div class="value">{{ avg }}</div>
+          <div class="label">AVG</div>
+        </div>
+        <div class="stat">
+          <div class="value">{{ kr }}</div>
+          <div class="label">K/R</div>
+        </div>
+      </div>
+
+      <div class="rating">
+        <div class="rating-left">
+          <div class="rating-title">🧠 Rating 2.0</div>
+          <div class="bar">
+            <div class="bar-fill" style="width: {{ rating_percent }}%"></div>
+          </div>
+        </div>
+        <div class="rating-value">{{ rating }}</div>
+      </div>
+
+      <div class="footer">
+        AIGYRS • FACEIT ANALYTICS
+      </div>
+    </div>
+  </div>
+</body>
+</html>

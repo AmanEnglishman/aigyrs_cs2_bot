@@ -202,14 +202,21 @@ def get_player_summary(nickname: str, game: str = "cs2") -> str:
 
 # Реальные убийства в CS2
     kills = int(lifetime.get("Total Kills with extended stats", 0))
-
-    # Матчи есть
+    rounds = int(lifetime.get("Total Rounds with extended stats", 0))
     matches = int(lifetime.get("Matches", 0))
 
-    # Deaths глобально FACEIT не отдаёт в CS2
-    deaths = "—"
+    kd = lifetime.get("Average K/D Ratio", "—")
+    kd_value = float(kd) if kd != "—" else None
 
-    # AVG kills per match
+    # ✅ K/R = kills / rounds
+    kr = round(kills / rounds, 2) if kills > 0 and rounds > 0 else "—"
+
+    # ⚠️ Deaths (оценка через K/D)
+    if kd_value and kd_value > 0:
+        deaths = int(kills / kd_value)
+    else:
+        deaths = "—"
+
     avg_kills = round(kills / matches, 2) if kills > 0 and matches > 0 else "—"
 
     # --- Страна ---
@@ -225,7 +232,7 @@ def get_player_summary(nickname: str, game: str = "cs2") -> str:
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 Ник: <b>{nickname_real}</b>\n"
         f"🌍 Страна: {country_flag} ({country_code.upper() or '—'})\n"
-        f"🏆 Уровень: <b>{level_}</b>\n"
+        f"🏆 Level: <b>{level_}</b>\n"
         f"⚡ ELO: <b>{elo}</b>\n\n"
         f"📊 Lifetime stats\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -399,3 +406,23 @@ if __name__ == "__main__":
         print("Ошибка при запросе к FACEIT:", exc)
 
 
+def get_player_card_data(nickname: str) -> dict:
+    player = search_player(nickname)
+    info = get_player_info(player["player_id"])
+    stats = get_player_stats(player["player_id"], game="cs2")
+
+    lifetime = stats["lifetime"]
+
+    kills = int(lifetime.get("Total Kills with extended stats", 0))
+    matches = int(lifetime.get("Matches", 0))
+    avg = round(kills / matches, 2) if matches else 0
+
+    return {
+        "nickname": info["nickname"],
+        "elo": info["games"]["cs2"]["faceit_elo"],
+        "level": info["games"]["cs2"]["skill_level"],
+        "kd": lifetime.get("Average K/D Ratio"),
+        "adr": lifetime.get("ADR"),
+        "avg": avg,
+        "rating": "1.05",  # позже считаем формулой
+    }
