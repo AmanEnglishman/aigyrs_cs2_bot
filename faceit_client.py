@@ -200,10 +200,20 @@ def get_player_summary(nickname: str, game: str = "cs2") -> str:
     kr = lifetime.get("Average K/R Ratio", "—")
     hs = lifetime.get("Average Headshots %", "—")
 
-    # --- AVG kills (Kills / Matches) ---
+# --- Kills / Matches (CS2 FIX) ---
     kills = int(lifetime.get("Kills", 0))
     deaths = int(lifetime.get("Deaths", 0))
     matches = int(lifetime.get("Matches", 0))
+
+# ⚠️ В CS2 lifetime часто пустой → берём из segments
+    if kills == 0 or deaths == 0:
+        for segment in stats.get("segments", []):
+            if segment.get("label") == "Overall":
+                seg_stats = segment.get("stats", {})
+                kills = int(seg_stats.get("Kills", kills))
+                deaths = int(seg_stats.get("Deaths", deaths))
+                matches = int(seg_stats.get("Matches", matches))
+                break
 
     avg_kills = round(kills / matches, 2) if matches > 0 else "—"
 
