@@ -5,6 +5,7 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
+
 import requests
 from dotenv import load_dotenv
 
@@ -261,6 +262,27 @@ def get_player_maps_stats(nickname: str, game: str = "cs2") -> str:
 
     return text
 
+def format_faceit_date(value: Any) -> str:
+    """
+    Приводит дату FACEIT к читаемому виду.
+    Поддерживает:
+    - unix timestamp (int)
+    - ISO-строку
+    - None / мусорные значения
+    """
+    if isinstance(value, int):
+        return datetime.utcfromtimestamp(value).strftime("%d.%m.%Y %H:%M")
+
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(
+                value.replace("Z", "+00:00")
+            ).strftime("%d.%m.%Y %H:%M")
+        except ValueError:
+            return value
+
+    return "N/A"
+
 
 def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) -> str:
     """
@@ -283,54 +305,47 @@ def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) 
 
     for match in items:
         match_id = match.get("match_id", "N/A")
-        started_at = match.get("started_at", "")
-        finished_at = match.get("finished_at", "")
-        
-        # Форматируем дату
-        if started_at:
-            try:
-                dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                date_str = dt.strftime("%d.%m.%Y %H:%M")
-            except:
-                date_str = started_at[:10] if len(started_at) >= 10 else started_at
-        else:
-            date_str = "N/A"
 
-        # Результат матча
+        # ✅ безопасное форматирование даты
+        date_str = format_faceit_date(match.get("started_at"))
+
+        # --- Команды и счёт ---
         teams = match.get("teams", {})
         faction1 = teams.get("faction1", {})
         faction2 = teams.get("faction2", {})
-        
+
         score1 = faction1.get("stats", {}).get("score", 0) or 0
         score2 = faction2.get("stats", {}).get("score", 0) or 0
-        
-        # Определяем, выиграл ли игрок
+
+        # --- Определяем команду игрока ---
         player_team = None
-        for team_key in ["faction1", "faction2"]:
-            team = teams.get(team_key, {})
-            roster = team.get("roster", [])
+        for team_key in ("faction1", "faction2"):
+            roster = teams.get(team_key, {}).get("roster", [])
             if any(p.get("player_id") == player_id for p in roster):
                 player_team = team_key
                 break
-        
+
         if player_team:
-            won = (player_team == "faction1" and score1 > score2) or (player_team == "faction2" and score2 > score1)
+            won = (
+                player_team == "faction1" and score1 > score2
+            ) or (
+                player_team == "faction2" and score2 > score1
+            )
             result_emoji = "✅" if won else "❌"
         else:
             result_emoji = "⚪"
 
-        # Статистика игрока в матче - ищем в teams
+        # --- Статы игрока ---
         player_stats = {}
-        for team_key in ["faction1", "faction2"]:
-            team = teams.get(team_key, {})
-            roster = team.get("roster", [])
-            for player in roster:
-                if player.get("player_id") == player_id:
-                    player_stats = player.get("stats", {}) or {}
+        for team_key in ("faction1", "faction2"):
+            roster = teams.get(team_key, {}).get("roster", [])
+            for p in roster:
+                if p.get("player_id") == player_id:
+                    player_stats = p.get("stats", {}) or {}
                     break
             if player_stats:
                 break
-        
+
         kd = player_stats.get("K/D Ratio", player_stats.get("Average K/D Ratio", "—"))
         kills = player_stats.get("Kills", "—")
         deaths = player_stats.get("Deaths", "—")
@@ -338,12 +353,13 @@ def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) 
 
         text += (
             f"{result_emoji} <b>{date_str}</b>\n"
-            f"Счет: {score1} - {score2}\n"
+            f"Счёт: {score1} - {score2}\n"
             f"K/D: {kd} ({kills}/{deaths}) | ADR: {adr}\n"
             f"ID: <code>{match_id}</code>\n\n"
         )
 
     return text
+
 
 
 if __name__ == "__main__":
