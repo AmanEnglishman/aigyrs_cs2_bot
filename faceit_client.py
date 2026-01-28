@@ -1,8 +1,15 @@
+import logging
 import os
+import time
+from datetime import datetime
+from functools import lru_cache
 from typing import Any, Dict, Optional
 
 import requests
 from dotenv import load_dotenv
+
+
+logger = logging.getLogger(__name__)
 
 
 load_dotenv()
@@ -39,49 +46,129 @@ def _get_headers() -> Dict[str, str]:
     }
 
 
+# Простое кэширование на основе LRU (TTL через декоратор не поддерживается напрямую)
+_cache: Dict[str, tuple[Dict[str, Any], float]] = {}
+_CACHE_TTL = 300  # 5 минут
+
+
+def _get_cached(key: str) -> Optional[Dict[str, Any]]:
+    """Получить значение из кэша, если оно не устарело."""
+    if key in _cache:
+        value, timestamp = _cache[key]
+        if time.time() - timestamp < _CACHE_TTL:
+            logger.debug(f"Cache hit for {key}")
+            return value
+        else:
+            del _cache[key]
+    return None
+
+
+def _set_cached(key: str, value: Dict[str, Any]) -> None:
+    """Сохранить значение в кэш."""
+    _cache[key] = (value, time.time())
+    logger.debug(f"Cached {key}")
+
+
 def search_player(nickname: str) -> Optional[Dict[str, Any]]:
     """
     Find player by nickname.
     Returns first matched player dict or None.
+    Uses caching to reduce API calls.
     """
+    cache_key = f"search:{nickname.lower()}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
     url = f"{FACEIT_BASE_URL}/search/players"
     params = {"nickname": nickname}
 
+    logger.info(f"Searching player: {nickname}")
     resp = requests.get(url, headers=_get_headers(), params=params, timeout=10)
 
     if resp.status_code != 200:
+        logger.error(f"FACEIT search error ({resp.status_code}): {resp.text}")
         raise FaceitAPIError(
             f"Faceit search error ({resp.status_code}): {resp.text}"
         )
 
     data = resp.json()
     items = data.get("items") or []
+    result = items[0] if items else None
 
-    return items[0] if items else None
+    if result:
+        _set_cached(cache_key, result)
+
+    return result
 
 
 def get_player_info(player_id: str) -> Dict[str, Any]:
+    cache_key = f"info:{player_id}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
     url = f"{FACEIT_BASE_URL}/players/{player_id}"
+    logger.debug(f"Fetching player info: {player_id}")
     resp = requests.get(url, headers=_get_headers(), timeout=10)
 
     if resp.status_code != 200:
+        logger.error(f"FACEIT player info error ({resp.status_code}): {resp.text}")
         raise FaceitAPIError(
             f"Faceit player info error ({resp.status_code}): {resp.text}"
         )
 
-    return resp.json()
+    result = resp.json()
+    _set_cached(cache_key, result)
+    return result
 
 
 def get_player_stats(player_id: str, game: str = "cs2") -> Dict[str, Any]:
+    cache_key = f"stats:{player_id}:{game}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
     url = f"{FACEIT_BASE_URL}/players/{player_id}/stats/{game}"
+    logger.debug(f"Fetching player stats: {player_id} ({game})")
     resp = requests.get(url, headers=_get_headers(), timeout=10)
 
     if resp.status_code != 200:
+        logger.error(f"FACEIT player stats error ({resp.status_code}): {resp.text}")
         raise FaceitAPIError(
             f"Faceit player stats error ({resp.status_code}): {resp.text}"
         )
 
-    return resp.json()
+    result = resp.json()
+    _set_cached(cache_key, result)
+    return result
+
+
+def get_player_matches(player_id: str, game: str = "cs2", limit: int = 5) -> Dict[str, Any]:
+    """
+    Get recent matches for a player.
+    Returns matches data with pagination.
+    """
+    cache_key = f"matches:{player_id}:{game}:{limit}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    url = f"{FACEIT_BASE_URL}/players/{player_id}/history"
+    params = {"game": game, "limit": limit}
+    
+    logger.debug(f"Fetching player matches: {player_id} ({game}, limit={limit})")
+    resp = requests.get(url, headers=_get_headers(), params=params, timeout=10)
+
+    if resp.status_code != 200:
+        logger.error(f"FACEIT player matches error ({resp.status_code}): {resp.text}")
+        raise FaceitAPIError(
+            f"Faceit player matches error ({resp.status_code}): {resp.text}"
+        )
+
+    result = resp.json()
+    _set_cached(cache_key, result)
+    return result
 
 
 def get_player_summary(nickname: str, game: str = "cs2") -> str:
@@ -125,6 +212,136 @@ def get_player_summary(nickname: str, game: str = "cs2") -> str:
         f"ADR: <b>{adr}</b>\n"
         f"HS%: <b>{hs}</b>\n"
     )
+
+    return text
+
+
+def get_player_maps_stats(nickname: str, game: str = "cs2") -> str:
+    """
+    Get player statistics by maps.
+    Returns formatted text with stats for each map.
+    """
+    player = search_player(nickname)
+    if not player:
+        return "Игрок не найден на FACEIT 🤷‍♂️"
+
+    player_id = player["player_id"]
+    stats = get_player_stats(player_id, game=game)
+    segments = stats.get("segments", [])
+
+    if not segments:
+        return f"Статистика по картам для <b>{nickname}</b> недоступна 📊"
+
+    nickname_real = player.get("nickname") or nickname
+    text = f"🗺 Статистика по картам: <b>{nickname_real}</b>\n\n"
+
+    # Сортируем карты по количеству матчей (если есть)
+    sorted_segments = sorted(
+        segments,
+        key=lambda x: x.get("stats", {}).get("Matches", 0) or 0,
+        reverse=True
+    )
+
+    for segment in sorted_segments[:10]:  # Показываем топ-10 карт
+        map_name = segment.get("label", "Unknown")
+        map_stats = segment.get("stats", {}) or {}
+
+        matches = map_stats.get("Matches", "—")
+        wins = map_stats.get("Wins", "—")
+        losses = map_stats.get("Losses", "—")
+        win_rate = map_stats.get("Win Rate %", "—")
+        kd = map_stats.get("Average K/D Ratio", "—")
+        adr = map_stats.get("Average ADR", "—")
+
+        text += (
+            f"<b>{map_name}</b>\n"
+            f"Матчей: {matches} | W/L: {wins}/{losses} | WR: {win_rate}%\n"
+            f"K/D: {kd} | ADR: {adr}\n\n"
+        )
+
+    return text
+
+
+def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) -> str:
+    """
+    Get recent matches for a player.
+    Returns formatted text with match results.
+    """
+    player = search_player(nickname)
+    if not player:
+        return "Игрок не найден на FACEIT 🤷‍♂️"
+
+    player_id = player["player_id"]
+    matches_data = get_player_matches(player_id, game=game, limit=limit)
+    items = matches_data.get("items", [])
+
+    if not items:
+        return f"Последние матчи для <b>{nickname}</b> не найдены 🎮"
+
+    nickname_real = player.get("nickname") or nickname
+    text = f"🎮 Последние матчи: <b>{nickname_real}</b>\n\n"
+
+    for match in items:
+        match_id = match.get("match_id", "N/A")
+        started_at = match.get("started_at", "")
+        finished_at = match.get("finished_at", "")
+        
+        # Форматируем дату
+        if started_at:
+            try:
+                dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                date_str = dt.strftime("%d.%m.%Y %H:%M")
+            except:
+                date_str = started_at[:10] if len(started_at) >= 10 else started_at
+        else:
+            date_str = "N/A"
+
+        # Результат матча
+        teams = match.get("teams", {})
+        faction1 = teams.get("faction1", {})
+        faction2 = teams.get("faction2", {})
+        
+        score1 = faction1.get("stats", {}).get("score", 0) or 0
+        score2 = faction2.get("stats", {}).get("score", 0) or 0
+        
+        # Определяем, выиграл ли игрок
+        player_team = None
+        for team_key in ["faction1", "faction2"]:
+            team = teams.get(team_key, {})
+            roster = team.get("roster", [])
+            if any(p.get("player_id") == player_id for p in roster):
+                player_team = team_key
+                break
+        
+        if player_team:
+            won = (player_team == "faction1" and score1 > score2) or (player_team == "faction2" and score2 > score1)
+            result_emoji = "✅" if won else "❌"
+        else:
+            result_emoji = "⚪"
+
+        # Статистика игрока в матче - ищем в teams
+        player_stats = {}
+        for team_key in ["faction1", "faction2"]:
+            team = teams.get(team_key, {})
+            roster = team.get("roster", [])
+            for player in roster:
+                if player.get("player_id") == player_id:
+                    player_stats = player.get("stats", {}) or {}
+                    break
+            if player_stats:
+                break
+        
+        kd = player_stats.get("K/D Ratio", player_stats.get("Average K/D Ratio", "—"))
+        kills = player_stats.get("Kills", "—")
+        deaths = player_stats.get("Deaths", "—")
+        adr = player_stats.get("ADR", player_stats.get("Average ADR", "—"))
+
+        text += (
+            f"{result_emoji} <b>{date_str}</b>\n"
+            f"Счет: {score1} - {score2}\n"
+            f"K/D: {kd} ({kills}/{deaths}) | ADR: {adr}\n"
+            f"ID: <code>{match_id}</code>\n\n"
+        )
 
     return text
 
