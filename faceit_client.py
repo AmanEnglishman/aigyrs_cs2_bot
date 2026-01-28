@@ -174,7 +174,7 @@ def get_player_matches(player_id: str, game: str = "cs2", limit: int = 5) -> Dic
 
 def get_player_summary(nickname: str, game: str = "cs2") -> str:
     """
-    High-level helper: by nickname returns formatted text with main stats.
+    High-level helper: by nickname returns formatted HLTV-style profile.
     """
     player = search_player(nickname)
     if not player:
@@ -188,33 +188,56 @@ def get_player_summary(nickname: str, game: str = "cs2") -> str:
     game_info = info.get("games", {}).get(game, {})
     lifetime = stats.get("lifetime", {}) or {}
 
+    # --- Основные данные ---
     elo = game_info.get("faceit_elo", "—")
     level_ = game_info.get("skill_level", "—")
 
+    # --- Lifetime stats ---
     kd = lifetime.get("Average K/D Ratio", "—")
-    kr = lifetime.get("Average K/R Ratio", "—")
     adr = lifetime.get("ADR", "—")
-    hs = lifetime.get("Headshots %", "—")
 
+    # Эти поля нестабильны в FACEIT API
+    kr = lifetime.get("Average K/R Ratio", "—")
+    hs = lifetime.get("Average Headshots %", "—")
+
+    # --- AVG kills (Kills / Matches) ---
+    kills = int(lifetime.get("Kills", 0))
+    deaths = int(lifetime.get("Deaths", 0))
+    matches = int(lifetime.get("Matches", 0))
+
+    avg_kills = round(kills / matches, 2) if matches > 0 else "—"
+
+    # --- Страна ---
     country_code = info.get("country", "") or ""
     country_flag = _country_code_to_flag(country_code)
+
     nickname_real = info.get("nickname") or nickname
 
+    # --- Форматированный вывод ---
     text = (
-        f"🎮 FACEIT профиль\n"
-        f"Ник: <b>{nickname_real}</b>\n"
-        f"Страна: {country_flag} ({country_code.upper() or '—'})\n"
-        f"Игра: {game.upper()}\n\n"
-        f"ELO: <b>{elo}</b>\n"
-        f"Уровень: <b>{level_}</b>\n\n"
-        f"📊 Статы (lifetime):\n"
-        f"K/D: <b>{kd}</b>\n"
-        f"K/R: <b>{kr}</b>\n"
-        f"ADR: <b>{adr}</b>\n"
-        f"HS%: <b>{hs}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎮 FACEIT • CS2\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Ник: <b>{nickname_real}</b>\n"
+        f"🌍 Страна: {country_flag} ({country_code.upper() or '—'})\n"
+        f"🏆 Уровень: <b>{level_}</b>\n"
+        f"⚡ ELO: <b>{elo}</b>\n\n"
+        f"📊 Lifetime stats\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔫 K/D: <b>{kd}</b>\n"
+        f"🎯 AVG kills: <b>{avg_kills}</b>\n"
+        f"💥 ADR: <b>{adr}</b>\n"
+        f"📉 K/R: <b>{kr}</b>\n"
+        f"🎯 HS%: <b>{hs}</b>\n\n"
+        f"📈 Всего\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🕹 Матчей: <b>{matches}</b>\n"
+        f"☠️ Убийств: <b>{kills}</b>\n"
+        f"💀 Смертей: <b>{deaths}</b>\n"
     )
 
     return text
+
 
 
 def get_player_maps_stats(nickname: str, game: str = "cs2") -> str:
@@ -348,7 +371,7 @@ def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) 
 
         kd = player_stats.get("K/D Ratio", player_stats.get("Average K/D Ratio", "—"))
         kills = player_stats.get("Kills", "—")
-        deaths = player_stats.get("Deaths", "—")
+        deaths = player_stats.get("Deaths", "—")    
         adr = player_stats.get("ADR", player_stats.get("Average ADR", "—"))
 
         text += (
