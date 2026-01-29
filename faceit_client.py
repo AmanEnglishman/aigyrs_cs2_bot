@@ -227,22 +227,22 @@ def get_player_summary(nickname: str, game: str = "cs2") -> str:
 
     # --- Форматированный вывод ---
     text = (
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━\n"
         f"🎮 FACEIT • CS2\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━\n"
         f"👤 Ник: <b>{nickname_real}</b>\n"
         f"🌍 Страна: {country_flag} ({country_code.upper() or '—'})\n"
         f"🏆 Level: <b>{level_}</b>\n"
         f"⚡ ELO: <b>{elo}</b>\n\n"
         f"📊 Lifetime stats\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━\n"
         f"🔫 K/D: <b>{kd}</b>\n"
         f"🎯 AVG kills: <b>{avg_kills}</b>\n"
         f"💥 ADR: <b>{adr}</b>\n"
         f"📉 K/R: <b>{kr}</b>\n"
         f"🎯 HS%: <b>{hs}</b>\n\n"
         f"📈 Всего\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━\n"
         f"🕹 Матчей: <b>{matches}</b>\n"
         f"☠️ Убийств: <b>{kills}</b>\n"
         f"💀 Смертей: <b>{deaths}</b>\n"
@@ -282,12 +282,17 @@ def get_player_maps_stats(nickname: str, game: str = "cs2") -> str:
         map_name = segment.get("label", "Unknown")
         map_stats = segment.get("stats", {}) or {}
 
-        matches = map_stats.get("Matches", "—")
-        wins = map_stats.get("Wins", "—")
-        losses = map_stats.get("Losses", "—")
+        matches = int(map_stats.get("Matches", 0))
+        wins = int(map_stats.get("Wins", 0))
+
+        # ✅ считаем поражения сами
+        losses = matches - wins if matches > 0 else "—"
+
         win_rate = map_stats.get("Win Rate %", "—")
         kd = map_stats.get("Average K/D Ratio", "—")
-        adr = map_stats.get("Average ADR", "—")
+
+        # ❌ ADR по картам FACEIT не даёт
+        adr = "—"
 
         text += (
             f"<b>{map_name}</b>\n"
@@ -318,11 +323,24 @@ def format_faceit_date(value: Any) -> str:
 
     return "N/A"
 
+def get_match_stats(match_id: str) -> Dict[str, Any]:
+    url = f"{FACEIT_BASE_URL}/matches/{match_id}/stats"
+    resp = requests.get(url, headers=_get_headers(), timeout=10)
+
+    if resp.status_code != 200:
+        raise FaceitAPIError(
+            f"Faceit match stats error ({resp.status_code}): {resp.text}"
+        )
+
+    return resp.json()
+
 
 def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) -> str:
     """
     Get recent matches for a player.
-    Returns formatted text with match results.
+    Uses:
+      - /players/{player_id}/history   (list of matches)
+      - /matches/{match_id}/stats      (real stats)
     """
     player = search_player(nickname)
     if not player:
@@ -339,52 +357,61 @@ def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) 
     text = f"🎮 Последние матчи: <b>{nickname_real}</b>\n\n"
 
     for match in items:
-        match_id = match.get("match_id", "N/A")
+        match_id = match.get("match_id")
+        if not match_id:
+            continue
 
-        # ✅ безопасное форматирование даты
+        # 📅 дата
         date_str = format_faceit_date(match.get("started_at"))
 
-        # --- Команды и счёт ---
-        teams = match.get("teams", {})
-        faction1 = teams.get("faction1", {})
-        faction2 = teams.get("faction2", {})
-
-        score1 = faction1.get("stats", {}).get("score", 0) or 0
-        score2 = faction2.get("stats", {}).get("score", 0) or 0
-
-        # --- Определяем команду игрока ---
-        player_team = None
-        for team_key in ("faction1", "faction2"):
-            roster = teams.get(team_key, {}).get("roster", [])
-            if any(p.get("player_id") == player_id for p in roster):
-                player_team = team_key
-                break
-
-        if player_team:
-            won = (
-                player_team == "faction1" and score1 > score2
-            ) or (
-                player_team == "faction2" and score2 > score1
+        # 🧠 реальные статы матча
+        try:
+            match_stats = get_match_stats(match_id)
+        except FaceitAPIError:
+            text += (
+                f"⚠️ <b>{date_str}</b>\n"
+                f"Матч недоступен (stats)\n"
+                f"ID: <code>{match_id}</code>\n\n"
             )
-            result_emoji = "✅" if won else "❌"
-        else:
-            result_emoji = "⚪"
+            continue
 
-        # --- Статы игрока ---
+        score1 = score2 = 0
         player_stats = {}
-        for team_key in ("faction1", "faction2"):
-            roster = teams.get(team_key, {}).get("roster", [])
-            for p in roster:
-                if p.get("player_id") == player_id:
-                    player_stats = p.get("stats", {}) or {}
-                    break
-            if player_stats:
-                break
+        player_team = None
 
-        kd = player_stats.get("K/D Ratio", player_stats.get("Average K/D Ratio", "—"))
+        rounds = match_stats.get("rounds", [])
+        if rounds:
+            last_round = rounds[-1]
+
+            for team in last_round.get("teams", []):
+                team_name = team.get("team_stats", {}).get("Team")
+                score = int(team.get("team_stats", {}).get("Score", 0))
+
+                if team_name == "faction1":
+                    score1 = score
+                elif team_name == "faction2":
+                    score2 = score
+
+                for p in team.get("players", []):
+                    if p.get("player_id") == player_id:
+                        player_stats = p.get("player_stats", {})
+                        player_team = team_name
+
+        # 🎯 статы игрока
         kills = player_stats.get("Kills", "—")
-        deaths = player_stats.get("Deaths", "—")    
-        adr = player_stats.get("ADR", player_stats.get("Average ADR", "—"))
+        deaths = player_stats.get("Deaths", "—")
+        kd = player_stats.get("K/D Ratio", "—")
+        adr = player_stats.get("ADR", "—")
+
+        # 🟢 / 🔴 результат
+        if player_team == "faction1":
+            won = score1 > score2
+        elif player_team == "faction2":
+            won = score2 > score1
+        else:
+            won = None
+
+        result_emoji = "✅" if won else "❌" if won is False else "⚪"
 
         text += (
             f"{result_emoji} <b>{date_str}</b>\n"
@@ -394,6 +421,8 @@ def get_player_recent_matches(nickname: str, game: str = "cs2", limit: int = 5) 
         )
 
     return text
+
+
 
 
 

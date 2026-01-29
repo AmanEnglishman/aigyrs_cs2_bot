@@ -40,6 +40,8 @@ dp_instance: Dispatcher | None = None
 shutdown_event = asyncio.Event()
 
 
+
+
 async def cmd_start(message: Message) -> None:
     logger.info(f"User {message.from_user.id} ({message.from_user.username}) used /start")
     await message.answer(
